@@ -1,0 +1,421 @@
+<!--
+Created using JS Bin
+http://jsbin.com
+Copyright (c) 2018 by 141141
+Released under the MIT license: http://jsbin.mit-license.org
+-->
+<meta name="robots" content="noindex">
+<style>
+  /* for retro looking */
+
+  canvas {
+    width: 1;
+    height: 1;
+    /* 1.firefox, 2.Safari, 3.Chrome, 4.Edge */
+    image-rendering: -moz-crisp-edges;
+    image-rendering: -webkit-crisp-edges;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+  }
+
+  body {
+    font-size: 24px;
+    font-family: Play, Tahoma, sans-serif;
+    /* font-family: Oswald, Tahoma, sans-serif; */
+    text-shadow: 2px 2px 2px #ddd;
+  }
+
+  div#text {
+    text-align: center
+  }
+
+  div#step1,
+  div#step2,
+  div#step3 {
+    margin-top: 24px;
+    /* margin-left: 10%;
+    margin-right: 10%; */
+    text-align: center;
+  }
+
+  div#dropzone {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 9999999999;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    transition: visibility 250ms, opacity 250ms;
+    display: table;
+    text-shadow: 1px 1px 2px #000;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.45);
+    font: bold 42px Oswald, DejaVu Sans, Tahoma, sans-serif;
+  }
+
+  div#textnode {
+    display: table-cell;
+    text-align: center;
+    vertical-align: middle;
+    transition: font-size 250ms;
+  }
+
+  span.btn {
+    animation: blinker 1s linear infinite;
+    color: red;
+  }
+
+  span.btn:hover {
+    color: white;
+    text-decoration: underline;
+    background-color: red;
+    font-weight: bold;
+  }
+
+  @keyframes blinker {
+    50% {
+      opacity: 0;
+    }
+  }
+</style>
+<!-- <script src="./jquery-3.3.1.min.js"></script> -->
+<script src="https://code.jquery.com/jquery-3.3.1.min.js" crossorigin="anonymous"></script>
+<!-- <link href="https://fonts.googleapis.com/css?family=Oswald&effect=anaglyph" rel="stylesheet"> -->
+<link href="https://fonts.googleapis.com/css?family=Play&effect=anaglyph" rel="stylesheet">
+
+<div style="visibility:hidden; opacity:0" id="dropzone">
+  <div id="textnode">Drop any image here!</div>
+</div>
+<div class="font-effect-anaglyph">This page can resize your input image, and upload to the ESP32 RGB buffer and update the LED Matrix!</div>
+<div class="font-effect-anaglyph" id=step1>1. Specify your output size</div>
+<div id=input style="text-align:center">
+  Width:
+  <input style="font-size: 100%" type="number" onchange="ResizeImage()" min="0" max="256" step="32" id="width" value="64"> x Height:
+  <input style="font-size: 100%" type="number" onchange="ResizeImage()" min="0" max="256" step="32" id="height" value="64"> <br>
+  <fieldset style="display: inline-block">
+    <legend>Method:</legend>
+    <input type="radio" name="method" onclick="ResizeImage()" value="Fit" checked> Fit
+    <input type="radio" name="method" onclick="ResizeImage()" value="Crop"> Crop
+  </fieldset>
+</div>
+<div class="font-effect-anaglyph" id=step2>2. Drop an image or click <span class="btn" id="button" onclick="document.getElementById('fileselect').click();">here</span> to upload.</div>
+<div id=text></div>
+<center><img style="margin-top:10px;display:none;" src="" id="imagePreview" border="1"></center>
+<center><canvas style="border:1px solid #000000;" id="retro"></canvas></center>
+<div class="font-effect-anaglyph" id=step2>3. To upload this image, hit <span class="btn" id="upload" onclick="upload()">UPLOAD</span>!</div>
+<div id=output></div>
+
+<input style="visibility: hidden" type="file" id="fileselect" value="Select" />
+<script>
+  var lastTarget = null;
+  var imgDataSmall;
+  var radios = document.getElementsByName('method');
+  var dropzone = document.getElementById('dropzone');
+  var fileselect = document.getElementById('fileselect');
+  var m_file;
+  var dataStr;
+  var binData;
+
+  /*
+  // To delay script loading,
+  // Because EPS32 can not handle 2 files reading at the same time.
+  setTimeout(function() {
+      var headID = document.getElementsByTagName("head")[0];
+      var newScript = document.createElement('script');
+      newScript.type = 'text/javascript';
+      newScript.src = './jquery-3.3.1.min.js';
+      headID.appendChild(newScript);
+  }, 1000);
+  */
+
+  // confirm the the element dragged in is a file/folde or text.
+  function isFile(evt) {
+    var dt = evt.dataTransfer;
+
+    for (var i = 0; i < dt.types.length; i++) {
+      if (dt.types[i] === "Files") {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  window.addEventListener("dragenter", function(e) {
+    if (isFile(e)) {
+      lastTarget = e.target;
+      dropzone.style.visibility = "visible";
+      dropzone.style.opacity = 1;
+      document.querySelector("#textnode").style.fontSize = "48px";
+    }
+  });
+
+  window.addEventListener("dragleave", function(e) {
+    e.preventDefault();
+    if (e.target === document || e.target === lastTarget) {
+      dropzone.style.visibility = "hidden";
+      dropzone.style.opacity = 0;
+      document.querySelector("#textnode").style.fontSize = "42px";
+    }
+  });
+
+  window.addEventListener("dragover", function(e) {
+    e.preventDefault();
+  });
+
+  window.addEventListener("drop", FileSelectHandler);
+  fileselect.addEventListener("change", FileSelectHandler);
+
+  function FileSelectHandler(e) {
+    // cancel event and hover styling
+    e.preventDefault();
+    dropzone.style.visibility = "hidden";
+    dropzone.style.opacity = 0;
+
+    var files = e.target.files || e.dataTransfer.files;
+    var imageType = /image.*/;
+    if (!files[0].type.match(imageType)) {
+      alert('Not an image file!');
+      return;
+    }
+
+    m_file = files[0];
+    document.querySelector("#textnode").style.fontSize = "42px";
+    document.querySelector("#text").innerHTML = "<b>File selected:</b> " + files[0].name;
+
+    ResizeImage();
+
+  }
+
+
+  function ResizeImage() {
+    var MAX_WIDTH = document.getElementById('width').value;
+    var MAX_HEIGHT = document.getElementById('height').value;
+    // Create an image
+    var img = document.createElement("img");
+    // Create a file reader
+    var reader = new FileReader();
+    // Set the image once loaded into file reader
+    reader.onload = function(e) {
+
+      img.src = e.target.result;
+      img.onload = function() {
+        var canvas = document.createElement("canvas");
+
+        //var canvas = $("<canvas>", {"id":"testing"})[0];
+        var ctx = canvas.getContext("2d");
+        //ctx.drawImage(img, 0, 0);
+        var width = img.width;
+        var height = img.height;
+
+        if (width <= MAX_WIDTH && height <= MAX_HEIGHT) { // zoom to fit
+          width = MAX_WIDTH;
+          height = MAX_HEIGHT;
+        } else if (radios[0].checked) { // downscale to fit
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
+          }
+        } else if (radios[1].checked) { // crop to fit
+          if (width < height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
+          }
+
+        }
+        canvas.width = MAX_WIDTH;
+        canvas.height = MAX_HEIGHT;
+        var ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+
+        var dataurl = canvas.toDataURL("image/png");
+        document.getElementById('imagePreview').src = dataurl;
+
+        //console.log('image width: ' + img.width + 'height: ' + img.height)
+        getPixelData(canvas, MAX_WIDTH, MAX_HEIGHT);
+        imgToRetro(dataurl);
+      }
+    }
+    if (!m_file) return;
+    // Load files into file reader
+    reader.readAsDataURL(m_file);
+
+
+  }
+
+
+  function getPixelData(canvas, width, height) {
+    // get RGBA in each pixel to imgDataSmall array
+    imgDataSmall = canvas.getContext('2d').getImageData(0, 0, width, height).data;
+    var temp = [];
+
+    /*
+    ///// Byte Array(8bit): R1,G1,B1,R2,G2,B2... /////
+    // extract RGB element only
+    for (var i = 0; i < imgDataSmall.length / 4; i++) {
+      temp[i * 3] = imgDataSmall[i * 4].toString(16);
+      temp[i * 3 + 1] = imgDataSmall[i * 4 + 1].toString(16);
+      temp[i * 3 + 2] = imgDataSmall[i * 4 + 2].toString(16);
+    }
+    ///// Make it JSON serilized /////
+    //console.log(temp);
+    var dataObj = {
+      "len": temp.length,
+      "width": width,
+      "height": height,
+      "data": temp
+    };
+    dataStr = JSON.stringify(dataObj);
+    //console.log(dataStr);
+    */
+
+    /*
+    ///// Int Arrray(32bit): (A1R1G1B1) (A2R2G2B2) ... Alpha ignored  /////
+    for (var i = 0; i < imgDataSmall.length / 4; i++) {
+      temp.push((imgDataSmall[i * 4] << 16) + (imgDataSmall[i * 4 + 1] << 8) + (imgDataSmall[i * 4 + 2]));
+    }
+
+    ///// Make it JSON serilized /////
+    //console.log(temp);
+    var dataObj = {
+      "len": temp.length,
+      "width": width,
+      "height": height,
+      "data": temp
+    };
+    dataStr = JSON.stringify(dataObj);
+    //console.log(dataStr);
+    */
+
+    ///// Create an u8array to convert into base64 /////
+    var temp = new Uint8Array(width * height * 3);
+    for (var i = 0; i < imgDataSmall.length / 4; i++) {
+      temp[i * 3] = (imgDataSmall[i * 4]);
+      temp[i * 3 + 1] = (imgDataSmall[i * 4 + 1]);
+      temp[i * 3 + 2] = (imgDataSmall[i * 4 + 2]);
+    }
+    binData = temp;
+    // var base64str = btoa(Uint8ToString(temp));
+    // dataStr = base64str;
+    // // var dataObj = {
+    // //   // "len": temp.length,
+    // //   // "width": width,
+    // //   // "height": height,
+    // //   "data": base64str
+    // // };
+    // // dataStr = JSON.stringify(dataObj);
+
+
+
+
+  }
+
+  function imgToRetro(data) {
+    var MAX_WIDTH = document.getElementById('width').value;
+    var MAX_HEIGHT = document.getElementById('height').value;
+    // get canvas context
+    var c = document.getElementById("retro");
+    var ctx = c.getContext("2d");
+    // load image
+    var image = new Image();
+    image.onload = function() {
+      // resize the canvas to fit image size
+      c.width = image.width;
+      c.height = image.height;
+      // draw the image into the canvas
+      ctx.drawImage(image, 0, 0);
+      // change css properties to display it retro style
+      c.style.width = MAX_WIDTH * 5;
+      c.style.height = MAX_HEIGHT * 5;
+    }
+    image.src = data;
+  }
+
+  function upload() {
+    var filename = 'image.bin';
+    var formData = new FormData();
+    var blob = new Blob([binData], { type: "application/octet-binary"});
+    formData.append("file", blob, filename);
+
+    var request = new XMLHttpRequest();
+    request.open("POST", "/upload");
+    request.send(formData);
+    /* Use Ajax to Upload, but it doesn't support Safari
+    var filename = 'image.bin';
+    var formData = new FormData();
+    //var blob = new Blob();
+
+    formData.append('file', new File([new Blob([binData], {type: 'application/octet-binary'})], filename));
+    //formData.append('another-form-field', 'some value');
+
+    $.ajax({
+      url: '/upload',
+      data: formData,
+      processData: false,
+      contentType: false,
+      type: 'POST',
+      success: function() {
+        console.log('ok');
+      },
+      error: function() {
+        console.log('err'); // replace with proper error handling
+      }
+    });
+    */
+    // if (!dataStr)
+    //   return;
+    // var xhr = new XMLHttpRequest();
+    // xhr.open('POST', "http://172.20.10.9/update", true);
+    //
+    // xhr.setRequestHeader('Content-Type', 'text/json');
+    // xhr.onload = function() {
+    //   console.log(xhr.responseText);
+    //   var users = JSON.parse(xhr.responseText);
+    //   if (xhr.readyState == 4 && xhr.status == "200") {
+    //     var res = JSON.parse(xhr.responseText);
+    //     result = res.result;
+    //     alert(result);
+    //     //console.log(result);
+    //     alert
+    //   } else {
+    //     console.error(users);
+    //   }
+    // }
+    // xhr.send(dataStr);
+    // console.log(dataStr);
+  }
+
+  // window.onerror = function(msg, url, linenumber) {
+  //   alert('Error message: '+msg+'\nURL: '+url+'\nLine Number: '+linenumber);
+  //   return true;
+  // }
+
+
+  // UintToBase64Stirng
+  // Usage:
+  // var u8 = new Uint8Array([65, 66, 67, 68]);
+  // var b64encoded = btoa(Uint8ToString(u8));
+  function Uint8ToString(u8a) {
+    var CHUNK_SZ = 0x8000;
+    var c = [];
+    for (var i = 0; i < u8a.length; i += CHUNK_SZ) {
+      c.push(String.fromCharCode.apply(null, u8a.subarray(i, i + CHUNK_SZ)));
+    }
+    return c.join("");
+  }
+  
+</script>
