@@ -151,4 +151,3 @@ private:
 	uint8 column = 0;
 	uint8 yS;
 };
-
